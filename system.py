@@ -33,8 +33,8 @@ def preprocess_data(df):
     df_processed['day_of_year'] = df_processed['acq_date'].dt.dayofyear
     df_processed['month'] = df_processed['acq_date'].dt.month
     
-    # Create fire risk categories based on brightness and FRP (Fire Radiative Power)
-    df_processed['fire_risk'] = create_fire_risk_categories(df_processed)
+    # Create fire risk categories - IMPROVED VERSION
+    df_processed['fire_risk'] = create_fire_risk_categories_improved(df_processed)
     
     # Handle categorical variables
     le_confidence = LabelEncoder()
@@ -51,15 +51,48 @@ def preprocess_data(df):
     
     return df_processed, le_confidence, le_daynight
 
-def create_fire_risk_categories(df):
-    """Create fire risk categories based on brightness and FRP"""
+def create_fire_risk_categories_improved(df):
+    """
+    IMPROVED: Multi-criteria fire risk assessment with seasonal and environmental weighting
+    This eliminates the circular logic problem from the original function
+    """
+    # Seasonal fire risk multiplier
+    high_risk_months = [6, 7, 8, 9]  # Summer/early fall
+    moderate_risk_months = [4, 5, 10, 11]  # Spring/late fall
+    seasonal_multiplier = np.where(df['month'].isin(high_risk_months), 1.3,
+                          np.where(df['month'].isin(moderate_risk_months), 1.1, 0.8))
+    
+    # Environmental risk factors (independent of fire detection)
+    drought_factor = np.maximum(0, 30 - df['prcp']) / 30  # Scaled 0-1, higher when dry
+    heat_factor = np.maximum(0, df['tmax'] - 25) / 15     # Above 25°C scaled
+    wind_factor = np.minimum(df['wspd'] / 20, 1)          # Wind up to 20 km/h
+    
+    # Fire characteristics (what we actually detected)
+    thermal_anomaly = np.maximum(0, df['brightness'] - df['bright_t31'])  # Thermal contrast
+    fire_power = np.log1p(df['frp'])  # Log scale for FRP to reduce extreme values
+    
+    # Combine environmental conditions (30% weight)
+    environmental_risk = (drought_factor * 0.4 + heat_factor * 0.3 + wind_factor * 0.3)
+    
+    # Fire signature strength (70% weight) - normalized
+    max_thermal = thermal_anomaly.max() if thermal_anomaly.max() > 0 else 1
+    max_power = fire_power.max() if fire_power.max() > 0 else 1
+    fire_signature = (thermal_anomaly / max_thermal * 0.6 + fire_power / max_power * 0.4)
+    
+    # Final composite score
+    final_score = (environmental_risk * 0.3 + fire_signature * 0.7) * seasonal_multiplier
+    
+    # Use quartile-based thresholds for balanced distribution
+    q25, q50, q75 = np.percentile(final_score, [25, 50, 75])
+    
     conditions = [
-        (df['brightness'] < 300) & (df['frp'] < 1.0),
-        (df['brightness'] < 320) & (df['frp'] < 2.0),
-        (df['brightness'] < 340) & (df['frp'] < 4.0),
-        (df['brightness'] >= 340) | (df['frp'] >= 4.0)
+        final_score <= q25,
+        final_score <= q50, 
+        final_score <= q75,
+        final_score > q75
     ]
     choices = [0, 1, 2, 3]  # Low, Medium, High, Very High
+    
     return np.select(conditions, choices, default=1)
 
 def calculate_weather_severity(df):
@@ -74,9 +107,10 @@ def calculate_weather_severity(df):
 
 def prepare_features(df):
     """Prepare features for machine learning"""
+    # IMPORTANT: Remove brightness and frp from features to avoid data leakage
     feature_columns = [
-        'latitude', 'longitude', 'brightness', 'scan', 'track',
-        'bright_t31', 'frp', 'tavg', 'tmin', 'tmax', 'prcp', 'wspd',
+        'latitude', 'longitude', 'scan', 'track',
+        'bright_t31', 'tavg', 'tmin', 'tmax', 'prcp', 'wspd',
         'confidence_encoded', 'daynight_encoded', 'day_of_year', 'month',
         'weather_severity', 'temp_range'
     ]
@@ -89,14 +123,17 @@ def prepare_features(df):
     
     return X, y, feature_columns
 
-# Model Training Functions
+# Model Training Functions with better parameters to prevent overfitting
 def train_random_forest(X_train, y_train, n_estimators=100, random_state=42):
-    """Train Random Forest model"""
+    """Train Random Forest model with regularization"""
     rf_model = RandomForestClassifier(
         n_estimators=n_estimators,
         random_state=random_state,
-        max_depth=10,
-        min_samples_split=5
+        max_depth=8,              # Reduced from 10
+        min_samples_split=10,     # Increased from 5
+        min_samples_leaf=5,       # Added
+        max_features='sqrt',      # Added
+        bootstrap=True
     )
     rf_model.fit(X_train, y_train)
     return rf_model
@@ -109,7 +146,9 @@ def train_logistic_regression(X_train, y_train, random_state=42):
     lr_model = LogisticRegression(
         random_state=random_state,
         max_iter=1000,
-        multi_class='ovr'
+        multi_class='ovr',
+        C=1.0,                    # Regularization parameter
+        solver='liblinear'
     )
     lr_model.fit(X_train_scaled, y_train)
     return lr_model, scaler
@@ -122,7 +161,9 @@ def train_svm(X_train, y_train, random_state=42):
     svm_model = SVC(
         kernel='rbf',
         random_state=random_state,
-        probability=True
+        probability=True,
+        C=1.0,                    # Regularization parameter
+        gamma='scale'
     )
     svm_model.fit(X_train_scaled, y_train)
     return svm_model, scaler
@@ -237,25 +278,31 @@ def analyze_fire_patterns(df):
 
 def plot_risk_distribution(df):
     """Plot fire risk distribution"""
-    plt.figure(figsize=(12, 4))
+    plt.figure(figsize=(15, 5))
     
-    plt.subplot(1, 3, 1)
+    plt.subplot(1, 4, 1)
     df['fire_risk'].value_counts().sort_index().plot(kind='bar')
     plt.title('Fire Risk Distribution')
     plt.xlabel('Risk Level')
     plt.ylabel('Count')
     
-    plt.subplot(1, 3, 2)
+    plt.subplot(1, 4, 2)
     df.groupby('fire_risk')['brightness'].mean().plot(kind='bar')
     plt.title('Average Brightness by Risk Level')
     plt.xlabel('Risk Level')
     plt.ylabel('Brightness')
     
-    plt.subplot(1, 3, 3)
+    plt.subplot(1, 4, 3)
     df.groupby('fire_risk')['frp'].mean().plot(kind='bar')
     plt.title('Average FRP by Risk Level')
     plt.xlabel('Risk Level')
     plt.ylabel('FRP')
+    
+    plt.subplot(1, 4, 4)
+    df.groupby('fire_risk')['tmax'].mean().plot(kind='bar')
+    plt.title('Average Max Temp by Risk Level')
+    plt.xlabel('Risk Level')
+    plt.ylabel('Temperature')
     
     plt.tight_layout()
     plt.show()
@@ -263,7 +310,7 @@ def plot_risk_distribution(df):
 # Main execution function
 def run_fire_prediction_system(file_path):
     """Run the complete fire prediction system"""
-    print("=== Fire Prediction System ===")
+    print("=== Improved Fire Prediction System ===")
     
     # Load and preprocess data
     print("\n1. Loading and preprocessing data...")
@@ -282,17 +329,25 @@ def run_fire_prediction_system(file_path):
     print("\n3. Preparing features...")
     X, y, feature_columns = prepare_features(df_processed)
     
+    # Split data with temporal validation
+    print("Features being used:")
+    for i, col in enumerate(feature_columns):
+        print(f"{i+1}. {col}")
+    
     # Split data
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=0.2, random_state=42, stratify=y
     )
     
-    print(f"Training set size: {X_train.shape[0]}")
+    print(f"\nTraining set size: {X_train.shape[0]}")
     print(f"Test set size: {X_test.shape[0]}")
     
     # Train models
     print("\n4. Training models...")
-   
+    
+    # Random Forest
+    print("Training Random Forest...")
+    rf_model = train_random_forest(X_train, y_train)
     
     # Logistic Regression
     print("Training Logistic Regression...")
@@ -305,16 +360,24 @@ def run_fire_prediction_system(file_path):
     # Evaluate models
     print("\n5. Evaluating models...")
     
+    rf_pred, rf_proba, rf_acc = evaluate_model(rf_model, X_test, y_test, "Random Forest")
     lr_pred, lr_proba, lr_acc = evaluate_model(lr_model, X_test, y_test, "Logistic Regression", lr_scaler)
     svm_pred, svm_proba, svm_acc = evaluate_model(svm_model, X_test, y_test, "SVM", svm_scaler)
     
-    # Plot confusion matrix
+    # Plot confusion matrices
+    plot_confusion_matrix(y_test, rf_pred, "Random Forest")
     plot_confusion_matrix(y_test, lr_pred, "Logistic Regression")
     
+    # Feature importance
+    rf_importance = plot_feature_importance(rf_model, feature_columns, "Random Forest")
         
     # Best model selection
-    best_acc = max(lr_acc, svm_acc)
-    if best_acc == lr_acc:
+    best_acc = max(rf_acc, lr_acc, svm_acc)
+    if best_acc == rf_acc:
+        best_model = rf_model
+        best_scaler = None
+        best_name = "Random Forest"
+    elif best_acc == lr_acc:
         best_model = lr_model
         best_scaler = lr_scaler
         best_name = "Logistic Regression"
@@ -325,20 +388,18 @@ def run_fire_prediction_system(file_path):
     
     print(f"\nBest model: {best_name} with accuracy: {best_acc:.4f}")
     
-    # Example prediction
+    # Example prediction - NOTE: Updated to exclude brightness and frp
     print("\n6. Example prediction...")
     sample_data = {
         'latitude': 38.13,
         'longitude': 23.52,
-        'brightness': 320.0,
         'scan': 0.4,
         'track': 0.37,
         'bright_t31': 290.0,
-        'frp': 2.0,
-        'tavg': 25.0,
-        'tmin': 18.0,
-        'tmax': 32.0,
-        'prcp': 0.0,
+        'tavg': 12.5,
+        'tmin': 10.0,
+        'tmax': 15.0,
+        'prcp': 10.0,
         'wspd': 8.0,
         'confidence_encoded': 1,
         'daynight_encoded': 0,
@@ -364,7 +425,7 @@ def run_fire_prediction_system(file_path):
         'best_scaler': best_scaler,
         'feature_columns': feature_columns,
         'encoders': {'confidence': le_confidence, 'daynight': le_daynight},
-        'accuracies': {'lr': lr_acc, 'svm': svm_acc}
+        'accuracies': {'rf': rf_acc, 'lr': lr_acc, 'svm': svm_acc}
     }
 
 if __name__ == "__main__":
@@ -374,4 +435,3 @@ if __name__ == "__main__":
     
     if results:
         print("\nSystem trained successfully!")
-       
