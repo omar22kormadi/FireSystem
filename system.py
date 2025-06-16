@@ -188,7 +188,7 @@ def predict_fire_risk(model, input_data, scaler=None, feature_columns=None):
     if feature_columns:
         for col in feature_columns:
             if col not in input_df.columns:
-                input_df[col] = 0  # Default value for missing features
+                input_df[col] = 0 
         input_df = input_df[feature_columns]
     
     if scaler is not None:
@@ -308,7 +308,7 @@ def run_fire_prediction_system(file_path):
     lr_pred, lr_proba, lr_acc = evaluate_model(lr_model, X_test, y_test, "Logistic Regression", lr_scaler)
     svm_pred, svm_proba, svm_acc = evaluate_model(svm_model, X_test, y_test, "SVM", svm_scaler)
     
-    # Plot confusion matrices
+    # Plot confusion matrix
     plot_confusion_matrix(y_test, lr_pred, "Logistic Regression")
     
         
@@ -367,12 +367,9 @@ def run_fire_prediction_system(file_path):
         'accuracies': {'lr': lr_acc, 'svm': svm_acc}
     }
 
-# Example usage
 if __name__ == "__main__":
-    # Replace 'paste.txt' with your actual file path
     file_path = 'cleaned.csv'
     
-    # Run the fire prediction system
     results = run_fire_prediction_system(file_path)
     
     if results:
