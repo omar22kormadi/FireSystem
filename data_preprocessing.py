@@ -24,58 +24,54 @@ def preprocess_data(df):
     df.drop(columns=['satellite','version','instrument'], inplace=True)
     
     return df
-def split_data(df, target_column, test_size=0.2, random_state=42):
-    X = df.drop(columns=[target_column])
-    y = df[target_column]
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=random_state)
-    return X_train, X_test, y_train, y_test 
 
-def getWeather(dff):
-    for long, lat, date in zip(dff['longitude'], dff['latitude'], dff['acq_date']):
-        print(f"Longitude: {long}, Latitude: {lat}, Date: {date}")
 
-        latitude = lat
-        longitude = long
-        start_date = date
-        end_date = date
+# def getWeather(dff):
+#     for long, lat, date in zip(dff['longitude'], dff['latitude'], dff['acq_date']):
+#         print(f"Longitude: {long}, Latitude: {lat}, Date: {date}")
 
-        daily_vars = [
-            "temperature_2m_max",
-            "temperature_2m_min",
-            "precipitation_sum",
-            "windspeed_10m_max",
-            "relative_humidity_2m_max"
-        ]
+#         latitude = lat
+#         longitude = long
+#         start_date = date
+#         end_date = date
 
-        url = (
-            "https://archive-api.open-meteo.com/v1/archive"
-            f"?latitude={latitude}&longitude={longitude}"
-            f"&start_date={start_date}&end_date={end_date}"
-            f"&daily={','.join(daily_vars)}"
-            "&timezone=Europe%2FAthens"
-        )
+#         daily_vars = [
+#             "temperature_2m_max",
+#             "temperature_2m_min",
+#             "precipitation_sum",
+#             "windspeed_10m_max",
+#             "relative_humidity_2m_max"
+#         ]
 
-        print("🔗 Fetching data from:", url)
-        tries = 3
-        for attempt in range(tries):
-            try:
-                resp = requests.get(url, timeout=15)  # 15 seconds timeout
-                resp.raise_for_status()
-                data = resp.json()
-                df = pd.DataFrame(data['daily'])
-                df['latitude'] = latitude
-                df['longitude'] = longitude
-                output_file = "greece_weather_2019_2025.csv"
-                df.to_csv(output_file, index=False, mode='a', header=not os.path.exists(output_file))
-                print(f"✅ Saved weather data ({len(df)} days) to: {output_file}")
-                break  # Success, exit retry loop
-            except (ReadTimeout, ConnectionError) as e:
-                print(f"⚠️ Timeout or connection error: {e}. Retrying ({attempt+1}/{tries})...")
-                time.sleep(5)  # Wait before retrying
-            except Exception as e:
-                print(f"❌ Failed to fetch data: {e}")
-                break
-        time.sleep(1)  # polite delay between requests
+#         url = (
+#             "https://archive-api.open-meteo.com/v1/archive"
+#             f"?latitude={latitude}&longitude={longitude}"
+#             f"&start_date={start_date}&end_date={end_date}"
+#             f"&daily={','.join(daily_vars)}"
+#             "&timezone=Europe%2FAthens"
+#         )
+
+#         print("🔗 Fetching data from:", url)
+#         tries = 3
+#         for attempt in range(tries):
+#             try:
+#                 resp = requests.get(url, timeout=15)  # 15 seconds timeout
+#                 resp.raise_for_status()
+#                 data = resp.json()
+#                 df = pd.DataFrame(data['daily'])
+#                 df['latitude'] = latitude
+#                 df['longitude'] = longitude
+#                 output_file = "greece_weather_2019_2025.csv"
+#                 df.to_csv(output_file, index=False, mode='a', header=not os.path.exists(output_file))
+#                 print(f"✅ Saved weather data ({len(df)} days) to: {output_file}")
+#                 break  # Success, exit retry loop
+#             except (ReadTimeout, ConnectionError) as e:
+#                 print(f"⚠️ Timeout or connection error: {e}. Retrying ({attempt+1}/{tries})...")
+#                 time.sleep(5)  # Wait before retrying
+#             except Exception as e:
+#                 print(f"❌ Failed to fetch data: {e}")
+#                 break
+#         time.sleep(1)  # polite delay between requests
         
 def weather(dff):
     # features : time,tavg,tmin,tmax,prcp,snow,wdir,wspd,wpgt,pres,tsun,latitude,longitude
@@ -142,7 +138,7 @@ def clean_data(file_path):
 # df_fire = load_data('fire_data.csv')
 # df_fire_prep = preprocess_data(df_fire)
 # print(df_fire_prep.head())
-# getWeather(dff)
+
 # weather(df_fire_prep)
 final = clean_data('fire.csv')
 
