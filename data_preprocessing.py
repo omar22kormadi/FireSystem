@@ -1,3 +1,8 @@
+'''
+i used this file to prepare data , i used the meteostat library to fetch weather data
+and i mergered it with the fire data from NASA FIRMS
+'''
+
 import pandas as pd
 import numpy as np
 import time

@@ -1,3 +1,8 @@
+'''
+NOT IMPORTANT YOU CAN IGNORE THIS FILE
+i just wanted to test the meteostat library
+'''
+
 import pandas as pd
 from datetime import datetime
 from meteostat import Point

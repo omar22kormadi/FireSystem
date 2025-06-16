@@ -1,3 +1,7 @@
+'''
+NOT IMPORTANT YOU CAN IGNORE THIS FILE
+i just wanted to test the open-meteo API
+'''
 import requests
 import pandas as pd
 
